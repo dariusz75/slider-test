@@ -1,5 +1,5 @@
 /**
- * Galleria v 1.4.2 2014-08-07
+ * Galleria v 1.3.6 2014-06-23
  * http://galleria.io
  *
  * Licensed under the MIT license
@@ -20,7 +20,7 @@ var doc    = window.document,
     protoArray = Array.prototype,
 
 // internal constants
-    VERSION = 1.41,
+    VERSION = 1.36,
     DEBUG = true,
     TIMEOUT = 30000,
     DUMMY = false,
@@ -315,20 +315,19 @@ var doc    = window.document,
     // instance pool, holds the galleries until themeLoad is triggered
     _pool = [],
 
-    // Run galleries from theme trigger
-    _loadedThemes = [],
+    // themeLoad trigger
     _themeLoad = function( theme ) {
 
-        _loadedThemes.push(theme);
+        Galleria.theme = theme;
 
         // run the instances we have in the pool
-        // and apply the last theme if not specified
         $.each( _pool, function( i, instance ) {
-            if ( instance._options.theme == theme.name || (!instance._initialized && !instance._options.theme) ) {
-                instance.theme = theme;
+            if ( !instance._initialized ) {
                 instance._init.call( instance );
             }
         });
+
+        _pool = [];
     },
 
     // the Utils singleton
@@ -1127,6 +1126,48 @@ $.event.special['click:fast'] = {
         $(this).off('touchstart.fast touchmove.fast touchend.fast click.fast');
     }
 };
+
+        /*
+
+        if ( Galleria.TOUCH ) {
+            $(this).on('touchstart.fast', function start(e) {
+                var ev = e.originalEvent,
+                    x, y, dist = 0;
+                if ( ev.touches.length == 1 ) {
+                    x = ev.touches[0].pageX;
+                    y = ev.touches[0].pageY;
+                    $(this).on('touchmove.fast', function(f) {
+                        var ft = f.originalEvent.touches;
+                        if ( ft.length == 1 ) {
+                            dist = M.max(
+                                M.abs( x - ft[0].pageX ),
+                                M.abs( y - ft[0].pageY )
+                            );
+                        }
+                    });
+                    $(this).on('touchend.fast', function() {
+                        if( dist > 4 ) {
+                            return $(this).off('touchend.fast touchmove.fast');
+                        }
+                        handleObj.handler.call(this, e);
+                        $(this).off('touchend.fast touchmove.fast');
+                    });
+                }
+            });
+        } else {
+            $(this).on('click.fast', handleObj.handler);
+        }
+    },
+    remove: function(handleObj) {
+        if ( Galleria.TOUCH ) {
+            $(this).off('touchstart.fast touchmove.fast touchend.fast');
+        } else {
+            $(this).off('click.fast', handleObj.handler);
+        }
+    }
+};
+
+*/
 
 // trigger resize on orientationchange (IOS7)
 $win.on( 'orientationchange', function() {
@@ -2634,7 +2675,6 @@ Galleria.prototype = {
             showCounter: true,
             showImagenav: true,
             swipe: 'auto', // 1.2.4 -> revised in 1.3 -> changed type in 1.3.5
-            theme: null,
             thumbCrop: true,
             thumbEventType: 'click:fast',
             thumbMargin: 0,
@@ -2671,27 +2711,19 @@ Galleria.prototype = {
         // legacy support for transitionInitial
         this._options.initialTransition = this._options.initialTransition || this._options.transitionInitial;
 
-        if ( options ) {
+        // turn off debug
+        if ( options && options.debug === false ) {
+            DEBUG = false;
+        }
 
-            // turn off debug
-            if ( options.debug === false ) {
-                DEBUG = false;
-            }
+        // set timeout
+        if ( options && typeof options.imageTimeout === 'number' ) {
+            TIMEOUT = options.imageTimeout;
+        }
 
-            // set timeout
-            if ( typeof options.imageTimeout === 'number' ) {
-                TIMEOUT = options.imageTimeout;
-            }
-
-            // set dummy
-            if ( typeof options.dummy === 'string' ) {
-                DUMMY = options.dummy;
-            }
-
-            // set theme
-            if ( typeof options.theme == 'string' ) {
-                this._options.theme = options.theme;
-            }
+        // set dummy
+        if ( options && typeof options.dummy === 'string' ) {
+            DUMMY = options.dummy;
         }
 
         // hide all content
@@ -2703,25 +2735,10 @@ Galleria.prototype = {
         }
 
         // now we just have to wait for the theme...
-        // first check if it has already loaded
-        if ( _loadedThemes.length ) {
-            if ( this._options.theme ) {
-                for ( var i=0; i<_loadedThemes.length; i++ ) {
-                    if( this._options.theme === _loadedThemes[i].name ) {
-                        this.theme = _loadedThemes[i];
-                        break;
-                    }
-                }
-            } else {
-                // if no theme sepcified, apply the first loaded theme
-                this.theme = _loadedThemes[0];
-            }
-        }
-
-        if ( typeof this.theme == 'object' ) {
+        if ( typeof Galleria.theme === 'object' ) {
             this._init();
         } else {
-            // if no theme is loaded yet, push the instance into a pool and run it when the theme is ready
+            // push the instance into the pool and run it when the theme is ready
             _pool.push( this );
         }
 
@@ -2743,13 +2760,13 @@ Galleria.prototype = {
 
         this._initialized = true;
 
-        if ( !this.theme ) {
+        if ( !Galleria.theme ) {
             Galleria.raise( 'Init failed: No theme found.', true );
             return this;
         }
 
         // merge the theme & caller options
-        $.extend( true, options, this.theme.defaults, this._original.options, Galleria.configure.options );
+        $.extend( true, options, Galleria.theme.defaults, this._original.options, Galleria.configure.options );
 
         // internally we use boolean for swipe
         options.swipe = (function(s) {
@@ -2888,11 +2905,7 @@ Galleria.prototype = {
         Utils.hide( self.get('tooltip') );
 
         // add a notouch class on the container to prevent unwanted :hovers on touch devices
-        this.$( 'container' ).addClass([
-            ( Galleria.TOUCH ? 'touch' : 'notouch' ),
-            this._options.variation,
-            'galleria-theme-'+this.theme.name
-        ].join(' '));
+        this.$( 'container' ).addClass( ( Galleria.TOUCH ? 'touch' : 'notouch' ) + ' ' + this._options.variation );
 
         // add images to the controls
         if ( !this._options.swipe ) {
@@ -3482,7 +3495,8 @@ Galleria.prototype = {
                 }
 
             // create empty spans if thumbnails is set to 'empty'
-            } else if ( ( data.iframe && optval !== null ) || optval === 'empty' || optval === 'numbers' ) {
+            } else if ( data.iframe || optval === 'empty' || optval === 'numbers' ) {
+
                 thumb = {
                     container: Utils.create( 'galleria-image' ),
                     image: Utils.create( 'img', 'span' ),
@@ -3759,7 +3773,7 @@ Galleria.prototype = {
                 self.trigger( Galleria.READY );
 
                 // call the theme init method
-                self.theme.init.call( self, self._options );
+                Galleria.theme.init.call( self, self._options );
 
                 // Trigger Galleria.ready
                 $.each( Galleria.ready.callbacks, function(i ,fn) {
@@ -4483,16 +4497,6 @@ $(document).mousemove(function(e) {
         return function() {
             return fn.apply( scope, Utils.array( arguments ) );
         };
-    },
-
-    /**
-        Tells you the theme name of the gallery
-
-        @returns {String} theme name
-    */
-
-    getThemeName : function() {
-        return this.theme.name;
     },
 
     /**
@@ -5730,9 +5734,9 @@ Galleria.addTheme = function( theme ) {
                             css = script.src.replace(/[^\/]*$/, '') + theme.css;
 
                             window.setTimeout(function () {
-                                Utils.loadCSS(css, 'galleria-theme-'+theme.name, function () {
+                                Utils.loadCSS(css, 'galleria-theme', function () {
 
-                                    // run galleries with this theme
+                                    // the themeload trigger
                                     _themeLoad(theme);
 
                                 });
@@ -5784,18 +5788,44 @@ Galleria.loadTheme = function( src, options ) {
         if ( !loaded ) {
             // give it another 20 seconds
             err = window.setTimeout(function() {
-                if ( !loaded ) {
+                if ( !loaded && !Galleria.theme ) {
                     Galleria.raise( "Galleria had problems loading theme at " + src + ". Please check theme path or load manually.", true );
                 }
             }, 20000);
         }
     });
 
+    // first clear the current theme, if exists
+    Galleria.unloadTheme();
+
     // load the theme
     Utils.loadScript( src, function() {
         loaded = true;
         window.clearTimeout( err );
     });
+
+    return Galleria;
+};
+
+/**
+    unloadTheme unloads the Galleria theme and prepares for a new theme
+
+    @returns Galleria
+*/
+
+Galleria.unloadTheme = function() {
+
+    if ( typeof Galleria.theme == 'object' ) {
+
+        $('script').each(function( i, script ) {
+
+            if( new RegExp( 'galleria\\.' + Galleria.theme.name + '\\.' ).test( script.src ) ) {
+                $( script ).remove();
+            }
+        });
+
+        Galleria.theme = undef;
+    }
 
     return Galleria;
 };
@@ -6051,12 +6081,6 @@ Galleria.raise = function( msg, fatal ) {
 // Add the version
 Galleria.version = VERSION;
 
-Galleria.getLoadedThemes = function() {
-    return $.map(_loadedThemes, function(theme) {
-        return theme.name;
-    });
-};
-
 /**
     A method for checking what version of Galleria the user has installed and throws a readable error if the user needs to upgrade.
     Useful when building plugins that requires a certain version to function.
@@ -6220,12 +6244,6 @@ Galleria.Picture.prototype = {
         // IE8 opacity inherit bug
         if ( Galleria.IE8 ) {
             $( this.image ).css( 'filter', 'inherit' );
-        }
-
-        // FF shaking images bug:
-        // http://support.galleria.io/discussions/problems/12245-shaking-photos
-        if ( !Galleria.IE && !Galleria.CHROME && !Galleria.SAFARI ) {
-            $( this.image ).css( 'image-rendering', 'optimizequality' );
         }
 
         var reload = false,
